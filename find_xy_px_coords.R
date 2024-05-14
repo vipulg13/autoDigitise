@@ -3,21 +3,21 @@ library(pracma)
 library(EBImage)
 
 
-# works with EBIMage package
-# input: an EBImage
+# works with EBIMage package, <to be changed to magick>
+# input: an EBImage object
 # output: a list containing coordinate values (width, height) of x1, x2, y1, y2  
 getXYCoordinates <- function(img) {
   # find the coordinates of axes intersection point (x1 and y1)
   img_gray <- channel(img, "gray")
-  img_gray <- img_gray > 0.78
+  img_gray <- img_gray > 0.8
   width <- dim(img_gray)[1]
   height <- dim(img_gray)[2]
-  #px_fact <- ceiling(max(width, height)/512)
   px_fact <- round(max(width, height)/512)
   px_fact <- ifelse(px_fact == 0, 1, px_fact)
   sum_row <- apply(img_gray, 1, sum)
   sum_row[round(width/2):width] <- NA
   x_axis_start <- which.min(sum_row)
+  
   # logic to make decision for axis by checking 
   # the presence of the sequence of black pixels
   for (w in 1:(round(width/2)-1)) {
@@ -25,32 +25,38 @@ getXYCoordinates <- function(img) {
     if (length(p_x_start)) {
       seq_black_px <- rle(diff(p_x_start))$lengths
       if (length(seq_black_px) && max(seq_black_px) > height/5) {
-        if (abs(x_axis_start-w) > 3*px_fact) {
+        if (abs(x_axis_start-w) > 4*px_fact) {
           x_axis_start <- w
         } else {
-          x_axis_start <- ceiling((x_axis_start+w)/2)
+          if (px_fact > 1)
+            x_axis_start <- w + 2*(px_fact-(1/2))
         }
         break()
       }
     }
   }
-  #rle(test)$lengths[rle(test)$values==1]
-  #diff(unique(cumsum(test == 1)[test != 1]))
   sum_column <- apply(img_gray, 2, sum)
   sum_column[1:round(height/2)] <- NA
   y_axis_start <- which.min(sum_column)
-  #y_axis_start <- last(which(sum_column > 0.75))
+  
   # this supports the cases where the logarithmic ticks are span 
   # over the plot, which hallucinates the algorithm to select the x axis
   for (h in height:(round(height/2))) {
     p_y_start <- which(img_gray[,h] == FALSE)
     if (length(p_y_start)) {
       seq_black_px <- rle(diff(p_y_start))$lengths
+      
+      # check if a line-like object is detected
       if (length(seq_black_px) && max(seq_black_px) > width/5) {
-        if (abs(y_axis_start-h) > 3*px_fact) {
+        
+        # check the proximity of the detected line object with the initial line object
+        if (abs(y_axis_start-h) > 4*px_fact) {
           y_axis_start <- h
         } else {
-          y_axis_start <- floor((y_axis_start+h)/2)
+          
+          # find the center point of the line object in cases when pixel factor is more than 1
+          if (px_fact > 1)
+            y_axis_start <- h - 2*(px_fact-(1/2))
         }
         break()
       }
@@ -58,15 +64,11 @@ getXYCoordinates <- function(img) {
   }
   
   # find where x and y axes end
-  #white_y_indices <- which(img_gray[x_axis_start,] > 0.8)
-  #max.ids <- cumsum(p_y_start)[rle(diff(p_y_start))$lengths == max(seq_black_px)] - c(max(seq_black_px) - 1, 0)
-  #max.ids
   white_y_indices <- which(img_gray[x_axis_start,] == TRUE)
   p_y_axis_end <- white_y_indices[white_y_indices < y_axis_start & white_y_indices < height/3]
   y_axis_end <- 1
   if (length(p_y_axis_end))
     y_axis_end <- max(p_y_axis_end) + 1
-  #white_x_indices <- which(img_gray[, y_axis_start] > 0.8)
   white_x_indices <- which(img_gray[, y_axis_start] == TRUE)
   p_x_axis_end <- white_x_indices[white_x_indices > x_axis_start & white_x_indices > 2*(width/3)]
   x_axis_end <- width
@@ -94,29 +96,29 @@ locateYCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
   total_top_area <- dim(top_crop_area)[1]*dim(top_crop_area)[2]
   total_bottom_area <- dim(bottom_crop_area)[1]*dim(bottom_crop_area)[2]
   
+  # logic to check whether axis value is found or not
   if (sum(top_crop_area)/total_top_area > ax_val_th || sum(bottom_crop_area)/total_bottom_area > ax_val_th) {
     
     # logic to check ticks outside (cartesian coordinate 2)
-    #p_coord_points <- which(img_gray[(initAxesVec[1]-2),] < gray_threshold)
     p_coord_points <- which(img_gray[(initAxesVec[1]-(3*px_fact)),] == FALSE)
     p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1+3]+(2*px_fact)) & (p_coord_points<initAxesVec[1+2]-(2*px_fact))]
     if (!length(p_coord_points)) {
+      
       # logic to check ticks inside (cartesian coordinate 1)
-      #p_coord_points <- which(img_gray[(initAxesVec[1]+2),] < gray_threshold)
-      p_coord_points <- which(img_gray[(initAxesVec[1]+(2*px_fact)),] == FALSE)
+      p_coord_points <- which(img_gray[(initAxesVec[1]+(3*px_fact)),] == FALSE)
       p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1+3]+(2*px_fact)) & (p_coord_points<initAxesVec[1+2]-(2*px_fact))]
     } 
     if (!length(p_coord_points))
       return(c(initAxesVec[1],initAxesVec[1+loc]))
+    
     # logic for linear or exponential
-    #p_coord_points <- p_coord_points[which(seq_diff > 1)] # has to be evaluated
     tick_chunks <- split(p_coord_points, cumsum(c(1, diff(p_coord_points) != 1)))
     p_coord_points <- unname(sapply(tick_chunks, function(x) ceiling(mean(x))))
-    
     seq_diff <- diff(p_coord_points)
+    
     # logarithmic with increamental ticks
     if (length(unique(seq_diff)) > 7) {
-      p_peak_pos <- findpeaks(seq_diff, threshold = 10)[,2]
+      p_peak_pos <- findpeaks(seq_diff, threshold = 5)[,2]
       p_peak <- median(seq_diff[p_peak_pos])
       peak_pos_index <- which(seq_diff[p_peak_pos] >= p_peak-(3*px_fact) & seq_diff[p_peak_pos] <= p_peak+(3*px_fact))
       peak_pos <- p_peak_pos[peak_pos_index]
@@ -135,6 +137,7 @@ locateYCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
         }
       }
     } else {
+      
       # linear with equally or nearly equally distributed ticks
       range <- length(p_coord_points):1
       if (!axis_pos == "start")
@@ -152,9 +155,11 @@ locateYCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
       }
     }
   } else {
+    # if axis value found
     axesVec <- c(initAxesVec[1],initAxesVec[1+loc])
   }
-  if (is.null(axesVec))
+  # if axis value couldn't be located then return initial vector
+  if (any(is.na(axesVec)) || !length(axesVec) == 2)
     axesVec <- c(initAxesVec[1],initAxesVec[1+loc])
   return(axesVec)
 }
@@ -173,15 +178,15 @@ locateXCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
   total_left_area <- dim(left_crop_area)[1]*dim(left_crop_area)[2]
   total_right_area <- dim(right_crop_area)[1]*dim(right_crop_area)[2]  
   
+  # logic to check whether axis value is found or not
   if (sum(left_crop_area)/total_left_area > ax_val_th || sum(right_crop_area)/total_right_area > ax_val_th) {
+    # if axis value not found
     # logic to check ticks outside (cartesian coordinate 4)
-    #p_coord_points <- which(img_gray[,(initAxesVec[3]+2)] < gray_threshold)
     p_coord_points <- which(img_gray[,(initAxesVec[3]+(3*px_fact))] == FALSE)
     p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1]+(2*px_fact)) & (p_coord_points<initAxesVec[2]-(2*px_fact))]
     if (!length(p_coord_points)) {
       # logic to check ticks inside (cartesian coordinate 1)
-      #p_coord_points <- which(img_gray[,(initAxesVec[3]-2)] < gray_threshold)
-      p_coord_points <- which(img_gray[,(initAxesVec[3]-(2*px_fact))] == FALSE)
+      p_coord_points <- which(img_gray[,(initAxesVec[3]-(3*px_fact))] == FALSE)
       p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1]+(2*px_fact)) & (p_coord_points<initAxesVec[2]-(2*px_fact))]
     }
     if (!length(p_coord_points))
@@ -192,7 +197,7 @@ locateXCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
     seq_diff <- diff(p_coord_points)
     # logarithmic with increamental ticks
     if (length(unique(seq_diff)) > 7) {
-      p_peak_pos <- findpeaks(seq_diff, threshold = 10)[,2]
+      p_peak_pos <- findpeaks(seq_diff, threshold = 5)[,2]
       p_peak <- median(seq_diff[p_peak_pos])
       peak_pos_index <- which(seq_diff[p_peak_pos] >= p_peak-(3*px_fact) & seq_diff[p_peak_pos] <= p_peak+(3*px_fact))
       peak_pos <- p_peak_pos[peak_pos_index]
@@ -228,14 +233,16 @@ locateXCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
       }
     }
   } else {
+    # if axis value found
     axesVec <- c(initAxesVec[loc],initAxesVec[3])
   }
-  if (is.null(axesVec))
+  # if axis value couldn't be located then return initial vector
+  if (any(is.na(axesVec)) || !length(axesVec) == 2)
     axesVec <- c(initAxesVec[loc],initAxesVec[3])
   return(axesVec)
 }
 
-# get axis crop area to estimate presence of value
+# get axis crop area to estimate presence of tick value
 getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", px_fact = 1) {
   width <- dim(img_gray)[1]
   height <- dim(img_gray)[2]
@@ -245,32 +252,43 @@ getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", px
   if (!section %in% c("bottom", "top", "left", "right"))
     stop("section value is incorrect")
   
+  if (is.null(w) || is.null(h))
+    return(0)
+  
   if (section == "top" || section == "left") {
     if (axis == "y") {
-      width_min <- w-(17*px_fact)
-      width_max <- w-(6*px_fact)
-      height_min <- h-(2*px_fact)
+      prox_dist_fact <- round((w/px_fact)/64)
+      prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
+      width_min <- w-(20*px_fact*prox_dist_fact)
+      width_max <- w-(6*px_fact*prox_dist_fact)
+      height_min <- h-(3*px_fact)
       height_max <- h-px_fact
     } else if (axis == "x") {
+      prox_dist_fact <- round(((height-h)/px_fact)/64)
+      prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
       width_min <- w-(5*px_fact)
       width_max <- w-px_fact
-      height_min <- h+(6*px_fact)
-      height_max <- h+(17*px_fact)
+      height_min <- h+(6*px_fact*prox_dist_fact)
+      height_max <- h+(18*px_fact*prox_dist_fact)
     }
   } else if (section == "bottom" || section == "right") {
     if (axis == "y") {
-      width_min <- w-(17*px_fact)
-      width_max <- w-(6*px_fact)
+      prox_dist_fact <- round((w/px_fact)/64)
+      prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
+      width_min <- w-(20*px_fact*prox_dist_fact)
+      width_max <- w-(6*px_fact*prox_dist_fact)
       height_min <- h+px_fact
-      height_max <- h+(2*px_fact)
+      height_max <- h+(3*px_fact)
     } else if (axis == "x") {
+      prox_dist_fact <- round(((height-h)/px_fact)/64)
+      prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
       width_min <- w+px_fact
       width_max <- w+(5*px_fact)
-      height_min <- h+(6*px_fact)
-      height_max <- h+(17*px_fact)
+      height_min <- h+(6*px_fact*prox_dist_fact)
+      height_max <- h+(18*px_fact*prox_dist_fact)
     }
   }
-  #condition to prevent values outside of image
+  # condition to prevent values outside of image
   if (width_min < 1 || width_min > width)
     width_min <- wVec[which.min(c(width_min-wVec[1],wVec[2]-width_min))]
   if (width_max < 1 || width_max > width)
@@ -292,39 +310,3 @@ displayXYCoordinates <- function(img, lst) {
   img_draw <- EBImage::drawCircle(img_draw, lst$y2_coord[1], lst$y2_coord[2], 3, col = 1, fill = T)
   display(img_draw)
 }
-
-
-img <- EBImage::readImage("C:/Users/guptav/Pictures/test2/RPlot.png")
-display(img)
-coords <- getXYCoordinates(img)
-displayXYCoordinates(img, coords)
-
-
-a_width_min <- 60/2
-58 <- 59
-a_height_min <- 193 - 2
-a_height_max <- 193 + 2
-plot(img_gray[a_width_min:a_width_max,a_height_min:a_height_max])
-sum_row <- apply(img_gray[a_width_min:a_width_max,a_height_min:a_height_max], 1, sum)
-plot(sum_row, type = "l")
-dim <- dim(img_gray[a_width_min:a_width_max,a_height_min:a_height_max])
-area <- dim[1]*dim[2]
-sum(img_gray[a_width_min:a_width_max,a_height_min:a_height_max])
-
-
-# logic for linear or exponential
-#breaks <- c(0, which(diff(p_coord_points) != 1), length(p_coord_points))
-#cons_list <- sapply(seq(length(breaks) - 1), function(i) p_coord_points[(breaks[i] + 1):breaks[i+1]])
-
-
-
-fit1 <- fitdistr(a, "exponential") 
-fit2 <- fitdistr(control, "exponential")
-
-# goodness of fit test
-ks.test(ex, "pexp", fit1$estimate) # p-value > 0.05 -> distribution not refused
-ks.test(control, "pexp", fit2$estimate) #  significant p-value -> distribution refused
-
-# plot a graph
-hist(ex, freq = FALSE, breaks = 100, xlim = c(0, quantile(ex, 0.99)))
-curve(dexp(x, rate = fit1$estimate), from = 0, col = "red", add = TRUE)
