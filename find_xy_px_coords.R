@@ -10,7 +10,7 @@ getXYCoordinates <- function(img) {
   
   # find the coordinates of axes intersection point (x1 and y1)
   img_gray <- channel(img, "gray")
-  img_gray <- img_gray > 0.8
+  img_gray <- img_gray > 0.85
   width <- dim(img_gray)[1]
   height <- dim(img_gray)[2]
   px_fact_width <- round(width/512)
@@ -34,7 +34,7 @@ getXYCoordinates <- function(img) {
         y_black_px <- which(!img_gray[w,])
         y_seq_black_px <- rle(diff(y_black_px))$lengths
         if (!length(y_seq_black_px)) y_seq_black_px <- 0
-        if (abs(init_y_seq_black_px - max(y_seq_black_px))/init_y_seq_black_px < .1) {
+        if (abs(max(init_y_seq_black_px) - max(y_seq_black_px))/max(init_y_seq_black_px) < .1) {
           width_vec <- c(width_vec, w)
         }
       }
@@ -52,7 +52,7 @@ getXYCoordinates <- function(img) {
   max_seq_y_index <- y_seq_indices[max_value_y_index]
   cum_sum_y_index <- cumsum(rle_y$lengths)
   y_axis_end_height_index <- ifelse(max_seq_y_index == 1, 1, cum_sum_y_index[max_seq_y_index-1]+1)
-  y_axis_end_height <- y_black_px[y_axis_end_height_index] - 1 + 2*(px_fact_height-(1/2))
+  y_axis_end_height <- y_black_px[y_axis_end_height_index] + px_fact_height - 1
   
   # find the y1 height
   sum_column <- apply(img_gray, 2, sum)
@@ -77,7 +77,7 @@ getXYCoordinates <- function(img) {
           x_black_px <- which(!img_gray[,h1])
           x_seq_black_px <- rle(diff(x_black_px))$lengths
           if (!length(x_seq_black_px)) x_seq_black_px <- 0
-          if (abs(init_x_seq_black_px - max(x_seq_black_px))/init_x_seq_black_px < .1) {
+          if (abs(max(init_x_seq_black_px) - max(x_seq_black_px))/max(init_x_seq_black_px) < .1) {
             height_vec <- c(height_vec, h1)
           } else {
             break
@@ -99,23 +99,67 @@ getXYCoordinates <- function(img) {
   max_seq_x_index <- x_seq_indices[max_value_x_index]
   cum_sum_x_index <- cumsum(rle_x$lengths)
   x_axis_end_width_index <- ifelse(max_seq_x_index == length(rle_x$lengths), length(x_black_px), cum_sum_x_index[max_seq_x_index-1])
-  x_axis_end_width <-  x_black_px[x_axis_end_width_index] + 1 - 2*(px_fact_width-(1/2))
+  x_axis_end_width <-  x_black_px[x_axis_end_width_index] - px_fact_width + 1
   
   initAxesVec <- c(axes_intersect_width, x_axis_end_width, axes_intersect_height, y_axis_end_height)
   if (any(is.na(initAxesVec)) || !length(initAxesVec) == 4)
     stop("all initial axes points could not be located")
   lst <- list()
-  lst$x1_coord <- locateXCoordinates(img_gray, initAxesVec, axis_pos = "start", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
-  lst$x2_coord <- locateXCoordinates(img_gray, initAxesVec, axis_pos = "end", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
-  lst$y1_coord <- locateYCoordinates(img_gray, initAxesVec, axis_pos = "start", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
-  lst$y2_coord <- locateYCoordinates(img_gray, initAxesVec, axis_pos = "end", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  
+  # approximate the pixel distance of values from axes
+  empty_flag <- FALSE
+  prox_dist <- NA
+  for (i in initAxesVec[1]:1) {
+    black_px <-  which(!img_gray[i,(initAxesVec[4]+2):(initAxesVec[3]-2)])
+    if (!length(black_px)) empty_flag <- TRUE
+    if (length(black_px) && empty_flag) {
+      prox_dist <- initAxesVec[1] - i -1
+      break 
+    }
+  }
+  
+  # case when x1 and y1 have a common value point
+  top_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "y", section = "top", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  bottom_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "y", section = "bottom", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  left_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "x", section = "left", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  right_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "x", section = "right", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  total_top_area <- dim(top_crop_area)[1]*dim(top_crop_area)[2]
+  total_bottom_area <- dim(bottom_crop_area)[1]*dim(bottom_crop_area)[2]
+  total_left_area <- dim(left_crop_area)[1]*dim(left_crop_area)[2]
+  total_right_area <- dim(right_crop_area)[1]*dim(right_crop_area)[2]
+  top_crit <- sum(top_crop_area)/total_top_area > 0.99
+  bottom_crit <- sum(bottom_crop_area)/total_bottom_area > 0.99
+  left_crit <- sum(left_crop_area)/total_left_area > 0.99
+  right_crit <- sum(right_crop_area)/total_right_area > 0.99
+  
+  tryCatch({
+    # if value is common
+    if ((right_crit && top_crit) && !(left_crit && bottom_crit)) {
+      lst$x1_coord <- c(initAxesVec[1],initAxesVec[3])
+      lst$y1_coord <- c(initAxesVec[1],initAxesVec[3])
+    } else {
+      # if value is not common
+      lst$x1_coord <- locateXCoordinates(img_gray, initAxesVec, axis_pos = "start", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+      lst$y1_coord <- locateYCoordinates(img_gray, initAxesVec, axis_pos = "start", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+    }
+    # get x2 and y2
+    lst$x2_coord <- locateXCoordinates(img_gray, initAxesVec, axis_pos = "end", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+    lst$y2_coord <- locateYCoordinates(img_gray, initAxesVec, axis_pos = "end", px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  }, 
+  error = function(e) {
+    if(length(lst$x1_coord) < 2) lst$x1_coord <- c(initAxesVec[1],initAxesVec[3])
+    if(length(lst$y1_coord) < 2) lst$y1_coord <- c(initAxesVec[1],initAxesVec[3])
+    if(length(lst$x2_coord) < 2) lst$x2_coord <- c(initAxesVec[2],initAxesVec[3])
+    if(length(lst$y2_coord) < 2) lst$y2_coord <- c(initAxesVec[1],initAxesVec[4])
+  })
   
   # special case: when axes are not intersecting
-  if (all(img_gray[lst$x1_coord[1]:(lst$x1_coord[1]+1), lst$x1_coord[2]:(lst$x1_coord[2]+1)]))
+  if (all(img_gray[lst$x1_coord[1]:(lst$x1_coord[1]+1), (lst$x1_coord[2]-1):(lst$x1_coord[2])]))
     lst$x1_coord[1] <- lst$x1_coord[1] + which.min(img_gray[lst$x1_coord[1]:lst$x2_coord[1], lst$x1_coord[2]]) - 1 + 2*(px_fact_width-(1/2))
-  if (all(img_gray[lst$y1_coord[1]:(lst$y1_coord[1]+1), lst$y1_coord[2]:(lst$y1_coord[2]+1)]))
+  if (all(img_gray[lst$y1_coord[1]:(lst$y1_coord[1]+1), lst$y1_coord[2]:(lst$y1_coord[2]-1)]))
     lst$y1_coord[2] <- lst$y1_coord[2] - which.min(img_gray[lst$y1_coord[1], lst$y1_coord[2]:lst$y2_coord[2]]) + 2*(px_fact_height-(1/2))
   return(lst)
+  
 }
 
 # find the y1 and y2
@@ -134,16 +178,22 @@ locateYCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
   # logic to check whether axis value is found or not
   if (sum(top_crop_area)/total_top_area > ax_val_th || sum(bottom_crop_area)/total_bottom_area > ax_val_th) {
     
-    # logic to check ticks outside (cartesian coordinate 2)
-    p_coord_points <- which(!img_gray[(initAxesVec[1]-(3*px_fact_width)),])
-    p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1+3]+(2*px_fact_height)) & (p_coord_points<initAxesVec[1+2]-(2*px_fact_height))]
-    if (!length(p_coord_points)) {
-      
+    #logic to find ticks
+    for (i in 3:1) {
+      # logic to check ticks outside (cartesian coordinate 2)
+      if (initAxesVec[1]-(i*px_fact_width) >= 1) {
+        p_coord_points <- which(!img_gray[(initAxesVec[1]-(i*px_fact_width)),])
+        p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1+3]+(2*px_fact_height)) & (p_coord_points<initAxesVec[1+2]-(2*px_fact_height))] 
+      }
       # logic to check ticks inside (cartesian coordinate 1)
-      p_coord_points <- which(!img_gray[(initAxesVec[1]+(3*px_fact_width)),])
-      p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1+3]+(2*px_fact_height)) & (p_coord_points<initAxesVec[1+2]-(2*px_fact_height))]
-    } 
-    if (!length(p_coord_points))
+      if (!length(p_coord_points)) {
+        p_coord_points <- which(!img_gray[(initAxesVec[1]+(i*px_fact_width)),])
+        p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1+3]+(2*px_fact_height)) & (p_coord_points<initAxesVec[1+2]-(2*px_fact_height))]
+      }
+      if (length(p_coord_points) && length(p_coord_points[!diff(p_coord_points) == 1]))
+        break
+    }
+    if (!length(p_coord_points))  
       return(c(initAxesVec[1],initAxesVec[1+loc]))
     
     # logic for linear or exponential
@@ -190,9 +240,11 @@ locateYCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
       }
     }
   } else {
+    
     # if axis value found
     axesVec <- c(initAxesVec[1],initAxesVec[1+loc])
   }
+  
   # if axis value couldn't be located then return initial vector
   if (any(is.na(axesVec)) || !length(axesVec) == 2)
     axesVec <- c(initAxesVec[1],initAxesVec[1+loc])
@@ -217,15 +269,20 @@ locateXCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
   # logic to check whether axis value is found or not
   if (sum(left_crop_area)/total_left_area > ax_val_th || sum(right_crop_area)/total_right_area > ax_val_th) {
     
-    # if axis value not found
-    # logic to check ticks outside (cartesian coordinate 4)
-    p_coord_points <- which(!img_gray[,(initAxesVec[3]+(3*px_fact_height))])
-    p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1]+(2*px_fact_width)) & (p_coord_points<initAxesVec[2]-(2*px_fact_width))]
-    if (!length(p_coord_points)) {
-      
-      # logic to check ticks inside (cartesian coordinate 1)
-      p_coord_points <- which(!img_gray[,(initAxesVec[3]-(3*px_fact_height))])
-      p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1]+(2*px_fact_width)) & (p_coord_points<initAxesVec[2]-(2*px_fact_width))]
+    #logic to find ticks
+    for (i in 3:1) {
+      # logic to check ticks outside (cartesian coordinate 4)
+      if (initAxesVec[3]+i*px_fact_height <= dim(img_gray)[2]) {
+        p_coord_points <- which(!img_gray[,(initAxesVec[3]+(i*px_fact_height))])
+        p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1]+(2*px_fact_width)) & (p_coord_points<initAxesVec[2]-(2*px_fact_width))]
+      }
+      if (!length(p_coord_points)) {
+        # logic to check ticks inside (cartesian coordinate 1)
+        p_coord_points <- which(!img_gray[,(initAxesVec[3]-(i*px_fact_height))])
+        p_coord_points <- p_coord_points[(p_coord_points>initAxesVec[1]+(2*px_fact_width)) & (p_coord_points<initAxesVec[2]-(2*px_fact_width))]
+      }
+      if (length(p_coord_points) && length(p_coord_points[!diff(p_coord_points) == 1]))
+        break
     }
     if (!length(p_coord_points))
       return(c(initAxesVec[loc],initAxesVec[3]))
@@ -286,7 +343,7 @@ locateXCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
 }
 
 # get axis crop area to estimate presence of tick value
-getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", px_fact_width = px_fact_width, px_fact_height = px_fact_height) {
+getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height) {
   width <- dim(img_gray)[1]
   height <- dim(img_gray)[2]
   wVec <- c(1,width)
@@ -301,33 +358,29 @@ getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", px
   if (section == "top" || section == "left") {
     if (axis == "y") {
       prox_dist_fact <- ceiling((w/px_fact_width)/64)
-      #prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
       width_min <- w-(20*px_fact_width*prox_dist_fact)
       width_max <- w-(6*px_fact_width*prox_dist_fact)
       height_min <- h-(3*px_fact_height)
       height_max <- h-px_fact_height
     } else if (axis == "x") {
       prox_dist_fact <- ceiling(((height-h)/px_fact_height)/64)
-      #prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
       width_min <- w-(5*px_fact_width)
       width_max <- w
-      height_min <- h+(6*px_fact_height*prox_dist_fact)
+      height_min <- h+(5*px_fact_height*prox_dist_fact)
       height_max <- h+(18*px_fact_height*prox_dist_fact)
     }
   } else if (section == "bottom" || section == "right") {
     if (axis == "y") {
       prox_dist_fact <- ceiling((w/px_fact_width)/64)
-      #prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
       width_min <- w-(20*px_fact_width*prox_dist_fact)
       width_max <- w-(6*px_fact_width*prox_dist_fact)
       height_min <- h+px_fact_height
       height_max <- h+(3*px_fact_height)
     } else if (axis == "x") {
       prox_dist_fact <- ceiling(((height-h)/px_fact_height)/64)
-      #prox_dist_fact <- ifelse(prox_dist_fact == 0, 1, prox_dist_fact)
       width_min <- w+px_fact_width
       width_max <- w+(5*px_fact_width)
-      height_min <- h+(6*px_fact_height*prox_dist_fact)
+      height_min <- h+(5*px_fact_height*prox_dist_fact)
       height_max <- h+(18*px_fact_height*prox_dist_fact)
     }
   }
