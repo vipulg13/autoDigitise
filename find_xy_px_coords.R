@@ -121,7 +121,7 @@ getXYCoordinates <- function(img) {
   # case when x1 and y1 have a common value point
   top_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "y", section = "top", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
   bottom_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "y", section = "bottom", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
-  left_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "x", section = "left", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
+  left_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "x", section = "left", common_point = TRUE, prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
   right_crop_area <- getAxisValueCropArea(img_gray, initAxesVec[1], initAxesVec[3], axis = "x", section = "right", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height)
   total_top_area <- dim(top_crop_area)[1]*dim(top_crop_area)[2]
   total_bottom_area <- dim(bottom_crop_area)[1]*dim(bottom_crop_area)[2]
@@ -343,7 +343,7 @@ locateXCoordinates <- function(img_gray, initAxesVec, axis_pos = "start", ax_val
 }
 
 # get axis crop area to estimate presence of tick value
-getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height) {
+getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", common_point = FALSE, prox_dist = prox_dist, px_fact_width = px_fact_width, px_fact_height = px_fact_height) {
   width <- dim(img_gray)[1]
   height <- dim(img_gray)[2]
   wVec <- c(1,width)
@@ -365,7 +365,10 @@ getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", pr
       height_min <- h-(3*px_fact_height)
       height_max <- h-px_fact_height
     } else if (axis == "x") {
-      width_min <- w-(5*px_fact_width)
+      lb <- 5
+      if (common_point)
+        lb <- 10
+      width_min <- w-(lb*px_fact_width)
       width_max <- w
       height_min <- h+(prox_dist)
       height_max <- h+(prox_dist + 15)
