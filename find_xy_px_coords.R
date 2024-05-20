@@ -360,7 +360,7 @@ getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", co
   
   if (section == "top" || section == "left") {
     if (axis == "y") {
-      width_min <- w - prox_dist - 15
+      width_min <- w - prox_dist - 15*px_fact_width
       width_max <- w-(prox_dist)
       height_min <- h-(3*px_fact_height)
       height_max <- h-px_fact_height
@@ -375,7 +375,7 @@ getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", co
     }
   } else if (section == "bottom" || section == "right") {
     if (axis == "y") {
-      width_min <- w - prox_dist - 15
+      width_min <- w - prox_dist - 15*px_fact_width
       width_max <- w-(prox_dist)
       height_min <- h+px_fact_height
       height_max <- h+(3*px_fact_height)
@@ -383,7 +383,7 @@ getAxisValueCropArea <- function(img_gray, w, h, axis = "x", section = "top", co
       width_min <- w+px_fact_width
       width_max <- w+(5*px_fact_width)
       height_min <- h+(prox_dist)
-      height_max <- h+(prox_dist + 15)
+      height_max <- h+(prox_dist + 15*px_fact_height)
     }
   }
   
